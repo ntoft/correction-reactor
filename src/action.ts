@@ -314,7 +314,6 @@ async function main() {
       orgName, repoName,
       `correction-reactor: revised ${group.persona} beliefs for ${group.eventWref} (trigger=${revisedWref})`,
       ops,
-      { committer: `correction-reactor` },
     );
     summary.push({
       eventWref: group.eventWref,
