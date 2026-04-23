@@ -3574,7 +3574,8 @@ function qualifyWref(repo, shape, name) {
 function revisedObservationWref(payload) {
   const sourceRepo = payload.sourceRepo ?? "";
   const ops = payload.matchedOperations ?? [];
-  for (const op of ops) {
+  for (const rawOp of ops) {
+    const op = rawOp?.operation ?? rawOp;
     if (op.operation !== "revise")
       continue;
     const name = op.name ?? op.wref ?? "";

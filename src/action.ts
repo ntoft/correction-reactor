@@ -89,7 +89,9 @@ function qualifyWref(repo: string, shape: string, name: string): string {
 function revisedObservationWref(payload: SpritePayload): string | null {
   const sourceRepo = payload.sourceRepo ?? "";
   const ops = payload.matchedOperations ?? [];
-  for (const op of ops) {
+  for (const rawOp of ops) {
+    // Sprite runtime nests the commit op under .operation; support both shapes.
+    const op = ((rawOp as any)?.operation ?? rawOp) as any;
     if (op.operation !== "revise") continue;
     const name = op.name ?? op.wref ?? "";
     if (!name) continue;
