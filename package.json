@@ -8,8 +8,7 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@warmhub/sdk-ts": "latest",
-    "openai": "^4.70.0"
+    "@warmhub/sdk-ts": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",

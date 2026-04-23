@@ -5,7 +5,6 @@
 // Trigger: revise operation on Observation in noaa-sst-daily or usgs-nwis.
 // Scope : chesapeake-attribution (home repo for beliefs).
 
-import OpenAI from "openai";
 import type { Operation, ReviseOperation, FilterResult, ThingGet } from "@warmhub/sdk-ts";
 import { clientFromEnv, homeRepo, splitRepo } from "./warmhub";
 
@@ -189,16 +188,27 @@ Output STRICT JSON:
 Only include causes whose share > 0. Shares should sum to ~1.0. Do not invent wrefs.`;
 }
 
-async function askLlm(openai: OpenAI, persona: Persona, event: EventData, context: ContextItem[]): Promise<LlmBelief[]> {
-  const res = await openai.chat.completions.create({
-    model: MODEL,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: systemPrompt(persona) },
-      { role: "user",   content: JSON.stringify({ event, context: context.map((c) => ({ wref: c.wref, data: c.summary })) }, null, 2) },
-    ],
+async function askLlm(apiKey: string, persona: Persona, event: EventData, context: ContextItem[]): Promise<LlmBelief[]> {
+  const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://github.com/ntoft/correction-reactor",
+      "X-Title": "fish-kill-attribution-correction-reactor",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt(persona) },
+        { role: "user",   content: JSON.stringify({ event, context: context.map((c) => ({ wref: c.wref, data: c.summary })) }, null, 2) },
+      ],
+    }),
   });
-  const raw = res.choices[0]?.message?.content ?? "{}";
+  if (!resp.ok) throw new Error(`OpenRouter ${resp.status}: ${await resp.text()}`);
+  const res = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const raw = res.choices?.[0]?.message?.content ?? "{}";
   const parsed = JSON.parse(raw) as { beliefs?: LlmBelief[] };
   const beliefs = Array.isArray(parsed.beliefs) ? parsed.beliefs : [];
   return beliefs
@@ -245,14 +255,6 @@ async function main() {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY not set (credential binding?)");
-  const openai = new OpenAI({
-    apiKey,
-    baseURL: OPENROUTER_BASE,
-    defaultHeaders: {
-      "HTTP-Referer": "https://github.com/ntoft/correction-reactor",
-      "X-Title": "fish-kill-attribution-correction-reactor",
-    },
-  });
 
   const summary: any[] = [];
   for (const group of groups.values()) {
@@ -264,7 +266,7 @@ async function main() {
     }
 
     const context = await gatherContext(client, eventData);
-    const newBeliefs = await askLlm(openai, group.persona, eventData, context);
+    const newBeliefs = await askLlm(apiKey, group.persona, eventData, context);
     const byCause = new Map<Cause, LlmBelief>();
     for (const nb of newBeliefs) byCause.set(nb.cause, nb);
 
