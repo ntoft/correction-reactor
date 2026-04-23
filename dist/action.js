@@ -3500,20 +3500,16 @@ function inferKind(name, operation) {
   return name.includes("/") ? "thing" : "shape";
 }
 // src/warmhub.ts
+var DEFAULT_HOME_REPO = "fish-kill-attribution/chesapeake-attribution";
 function clientFromEnv() {
-  const apiUrl = process.env.WARMHUB_API_URL;
-  const token = process.env.WARMHUB_TOKEN;
-  if (!apiUrl)
-    throw new Error("WARMHUB_API_URL not set (sprite runtime should inject)");
+  const apiUrl = process.env.WARMHUB_API_URL ?? "https://api.warmhub.ai";
+  const token = process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN;
   if (!token)
-    throw new Error("WARMHUB_TOKEN not set (sprite runtime should inject)");
+    throw new Error("WH_TOKEN not set (sprite runtime should inject)");
   return new WarmHubClient({ apiUrl, accessToken: () => token });
 }
 function homeRepo() {
-  const repo = process.env.WARMHUB_REPO;
-  if (!repo)
-    throw new Error("WARMHUB_REPO not set (sprite runtime should inject)");
-  return repo;
+  return process.env.WARMHUB_HOME_REPO ?? process.env.WARMHUB_REPO ?? DEFAULT_HOME_REPO;
 }
 function splitRepo(repo) {
   const [orgName, repoName] = repo.split("/");
