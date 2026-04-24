@@ -253,14 +253,14 @@ async function main() {
   }));
   // Probe multiple query variants so we can tell where things break.
   for (const variant of [
-    { label: "thing.query shape-only",         opts: { shape: "AttributionBelief", limit: 5 } },
-    { label: "thing.query no-filter",          opts: { limit: 5 } },
-    { label: "thing.query kind=assertion",     opts: { kind: "assertion", limit: 5 } },
-    { label: "thing.query shape+kind",         opts: { shape: "AttributionBelief", kind: "assertion", limit: 5 } },
-    { label: "thing.query shape=Observation",  opts: { shape: "Observation", limit: 5 } },
-  ]) {
+    { label: "chesapeake no-filter",  org: "fish-kill-attribution", repo: "chesapeake-attribution", opts: { limit: 5 } },
+    { label: "chesapeake FishKillEvent",  org: "fish-kill-attribution", repo: "chesapeake-attribution", opts: { shape: "FishKillEvent", limit: 5 } },
+    { label: "chesapeake AttributionBelief kind=assertion",  org: "fish-kill-attribution", repo: "chesapeake-attribution", opts: { shape: "AttributionBelief", kind: "assertion", limit: 5 } },
+    { label: "noaa-sst-daily no-filter",  org: "fish-kill-attribution", repo: "noaa-sst-daily", opts: { limit: 5 } },
+    { label: "noaa-sst-daily Observation",  org: "fish-kill-attribution", repo: "noaa-sst-daily", opts: { shape: "Observation", limit: 5 } },
+  ] as any[]) {
     try {
-      const r: FilterResult = await client.thing.query(orgName, repoName, variant.opts as any);
+      const r: FilterResult = await client.thing.query(variant.org, variant.repo, variant.opts);
       console.error(JSON.stringify({
         diag_variant: variant.label,
         count: (r.items ?? []).length,
