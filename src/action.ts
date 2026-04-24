@@ -248,7 +248,31 @@ async function main() {
     diag_home_env_repo: process.env.WARMHUB_REPO ?? null,
     diag_resolved_org: orgName,
     diag_resolved_repo: repoName,
+    diag_api_url: process.env.WARMHUB_API_URL ?? null,
+    diag_wh_token_prefix: (process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "").slice(0, 12),
   }));
+  // Probe multiple query variants so we can tell where things break.
+  for (const variant of [
+    { label: "thing.query shape-only",         opts: { shape: "AttributionBelief", limit: 5 } },
+    { label: "thing.query no-filter",          opts: { limit: 5 } },
+    { label: "thing.query kind=assertion",     opts: { kind: "assertion", limit: 5 } },
+    { label: "thing.query shape+kind",         opts: { shape: "AttributionBelief", kind: "assertion", limit: 5 } },
+    { label: "thing.query shape=Observation",  opts: { shape: "Observation", limit: 5 } },
+  ]) {
+    try {
+      const r: FilterResult = await client.thing.query(orgName, repoName, variant.opts as any);
+      console.error(JSON.stringify({
+        diag_variant: variant.label,
+        count: (r.items ?? []).length,
+        firstName: (r.items ?? [])[0]?.name ?? null,
+      }));
+    } catch (err) {
+      console.error(JSON.stringify({
+        diag_variant: variant.label,
+        error: (err as Error).message,
+      }));
+    }
+  }
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
   const sample = allBeliefs[0] ?? {};
   console.error(JSON.stringify({
