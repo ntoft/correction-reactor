@@ -3518,10 +3518,33 @@ function splitRepo(repo) {
   }
   return { orgName, repoName };
 }
+async function loadCredentialsFromPayload(payload) {
+  const token = payload?.secretToken ?? payload?.payload?.secretToken;
+  if (!token)
+    return;
+  const apiUrl = process.env.WARMHUB_API_URL ?? "https://api.warmhub.ai";
+  const resp = await fetch(`${apiUrl}/api/credentials/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+  if (!resp.ok) {
+    throw new Error(`credentials/export ${resp.status}: ${await resp.text()}`);
+  }
+  const { secrets } = await resp.json();
+  for (const [k, v] of Object.entries(secrets ?? {})) {
+    if (process.env[k] === undefined)
+      process.env[k] = v;
+  }
+}
 
 // src/action.ts
-var MODEL = process.env.PERSONA_MODEL ?? "anthropic/claude-3.5-sonnet";
-var OPENROUTER_BASE = process.env.OPENROUTER_BASE ?? "https://openrouter.ai/api/v1";
+function resolveModel() {
+  return process.env.PERSONA_MODEL ?? "anthropic/claude-3-haiku";
+}
+function resolveOpenRouterBase() {
+  return process.env.OPENROUTER_BASE ?? "https://openrouter.ai/api/v1";
+}
 var CONTEXT_LIMIT = 40;
 var RADIUS_DEG = 0.75;
 var DAYS_BEFORE = 14;
@@ -3668,7 +3691,7 @@ Output STRICT JSON:
 Only include causes whose share > 0. Shares should sum to ~1.0. Do not invent wrefs.`;
 }
 async function askLlm(apiKey, persona, event, context) {
-  const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+  const resp = await fetch(`${resolveOpenRouterBase()}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -3677,7 +3700,7 @@ async function askLlm(apiKey, persona, event, context) {
       "X-Title": "fish-kill-attribution-correction-reactor"
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: resolveModel(),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt(persona) },
@@ -3697,7 +3720,9 @@ async function main() {
   const client = clientFromEnv();
   const { orgName, repoName } = splitRepo(homeRepo());
   const raw = await Bun.stdin.text();
-  const payload = raw ? JSON.parse(raw) : {};
+  const rawPayload = raw ? JSON.parse(raw) : {};
+  await loadCredentialsFromPayload(rawPayload);
+  const payload = rawPayload?.payload ?? rawPayload;
   const revisedWref = revisedObservationWref(payload);
   if (!revisedWref) {
     console.log(JSON.stringify({ skipped: true, reason: "no revise op in payload" }));
@@ -3776,7 +3801,7 @@ async function main() {
           sl_base_rate: nb.sl_base_rate ?? 0.5,
           rationale: nb.rationale,
           evidence_ids: nb.evidence_ids ?? [],
-          model: MODEL
+          model: resolveModel()
         }
       };
       ops.push(revise);

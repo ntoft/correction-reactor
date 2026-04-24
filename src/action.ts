@@ -6,10 +6,16 @@
 // Scope : chesapeake-attribution (home repo for beliefs).
 
 import type { Operation, ReviseOperation, FilterResult, ThingGet } from "@warmhub/sdk-ts";
-import { clientFromEnv, homeRepo, splitRepo } from "./warmhub";
+import { clientFromEnv, homeRepo, splitRepo, loadCredentialsFromPayload } from "./warmhub";
 
-const MODEL = process.env.PERSONA_MODEL ?? "anthropic/claude-3.5-sonnet";
-const OPENROUTER_BASE = process.env.OPENROUTER_BASE ?? "https://openrouter.ai/api/v1";
+// MODEL + OPENROUTER_BASE resolved lazily — credentials arrive via
+// loadCredentialsFromPayload after this module loads.
+function resolveModel(): string {
+  return process.env.PERSONA_MODEL ?? "anthropic/claude-3-haiku";
+}
+function resolveOpenRouterBase(): string {
+  return process.env.OPENROUTER_BASE ?? "https://openrouter.ai/api/v1";
+}
 const CONTEXT_LIMIT = 40;
 const RADIUS_DEG = 0.75;
 const DAYS_BEFORE = 14;
@@ -191,7 +197,7 @@ Only include causes whose share > 0. Shares should sum to ~1.0. Do not invent wr
 }
 
 async function askLlm(apiKey: string, persona: Persona, event: EventData, context: ContextItem[]): Promise<LlmBelief[]> {
-  const resp = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+  const resp = await fetch(`${resolveOpenRouterBase()}/chat/completions`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -200,7 +206,7 @@ async function askLlm(apiKey: string, persona: Persona, event: EventData, contex
       "X-Title": "fish-kill-attribution-correction-reactor",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: resolveModel(),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt(persona) },
@@ -224,7 +230,10 @@ async function main() {
   const { orgName, repoName } = splitRepo(homeRepo()); // chesapeake-attribution
 
   const raw = await Bun.stdin.text();
-  const payload: SpritePayload = raw ? JSON.parse(raw) : {};
+  const rawPayload: any = raw ? JSON.parse(raw) : {};
+  await loadCredentialsFromPayload(rawPayload);
+  // Sprite runtime wraps the commit payload under `.payload`; unwrap it.
+  const payload: SpritePayload = rawPayload?.payload ?? rawPayload;
   const revisedWref = revisedObservationWref(payload);
   if (!revisedWref) {
     console.log(JSON.stringify({ skipped: true, reason: "no revise op in payload" }));
@@ -308,7 +317,7 @@ async function main() {
           sl_base_rate: nb.sl_base_rate ?? 0.5,
           rationale: nb.rationale,
           evidence_ids: nb.evidence_ids ?? [],
-          model: MODEL,
+          model: resolveModel(),
         },
       };
       ops.push(revise);
