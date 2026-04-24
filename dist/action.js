@@ -3740,66 +3740,7 @@ async function main() {
     console.log(JSON.stringify({ skipped: true, reason: "no revise op in payload" }));
     return;
   }
-  console.error(JSON.stringify({
-    diag_home_env_home_repo: process.env.WARMHUB_HOME_REPO ?? null,
-    diag_home_env_repo: process.env.WARMHUB_REPO ?? null,
-    diag_resolved_org: orgName,
-    diag_resolved_repo: repoName,
-    diag_api_url: process.env.WARMHUB_API_URL ?? null,
-    diag_wh_token_prefix: (process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "").slice(0, 12)
-  }));
-  try {
-    const head = await client.thing.head("fish-kill-attribution", "chesapeake-attribution", "FishKillEvent/severn-2025-11");
-    console.error(JSON.stringify({
-      diag_head_severn_name: head?.name ?? null,
-      diag_head_severn_version: head?.version ?? null,
-      diag_head_severn_shape: head?.shapeName ?? null
-    }));
-  } catch (err) {
-    console.error(JSON.stringify({ diag_head_severn_error: err.message }));
-  }
-  try {
-    const apiUrl = process.env.WARMHUB_API_URL ?? "https://api.warmhub.ai";
-    const token = process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "";
-    const resp = await fetch(`${apiUrl}/api/trpc/thing.query?input=${encodeURIComponent(JSON.stringify({
-      orgName: "fish-kill-attribution",
-      repoName: "chesapeake-attribution",
-      limit: 5
-    }))}`, { headers: { Authorization: `Bearer ${token}` } });
-    const body = await resp.text();
-    console.error(JSON.stringify({
-      diag_http_status: resp.status,
-      diag_http_body: body.slice(0, 500)
-    }));
-  } catch (err) {
-    console.error(JSON.stringify({ diag_http_error: err.message }));
-  }
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
-  const sample = allBeliefs[0] ?? {};
-  console.error(JSON.stringify({
-    diag_total: allBeliefs.length,
-    diag_keys: Object.keys(sample),
-    diag_data_keys: sample?.data ? Object.keys(sample.data) : null,
-    diag_head_keys: sample?.head ? Object.keys(sample.head) : null,
-    diag_head_data_keys: sample?.head?.data ? Object.keys(sample.head.data) : null,
-    diag_sample_evidence: sample?.data?.evidence_ids ?? sample?.head?.data?.evidence_ids ?? null
-  }));
-  const forcedBeliefs = await fetchAllBeliefs(client, "fish-kill-attribution", "chesapeake-attribution");
-  console.error(JSON.stringify({
-    diag_forced_total: forcedBeliefs.length,
-    diag_forced_first_name: forcedBeliefs[0]?.name ?? null
-  }));
-  const candidates = allBeliefs.filter((b) => {
-    const evA = b?.data?.evidence_ids;
-    const evB = b?.head?.data?.evidence_ids;
-    const ev = Array.isArray(evA) ? evA : Array.isArray(evB) ? evB : [];
-    return ev.some((id) => id === revisedWref);
-  });
-  console.error(JSON.stringify({
-    diag_revisedWref: revisedWref,
-    diag_candidate_count: candidates.length,
-    diag_candidate_names: candidates.slice(0, 5).map((c) => c.name)
-  }));
   const affected = allBeliefs.filter((b) => {
     const ev = b.data?.evidence_ids ?? b.head?.data?.evidence_ids ?? [];
     return Array.isArray(ev) && ev.some((id) => id === revisedWref || id.endsWith(revisedWref));

@@ -1,7 +1,9 @@
-// Patched correction-reactor — adds diagnostic logging to find why the
-// evidence_ids filter returns 0 matches despite beliefs that clearly cite the
-// revised observation. Logs item-shape samples, keys present, and raw filter
-// results. Remove the console.error blocks once the bug is fixed.
+// correction-reactor — when an upstream Observation is revised, find all
+// AttributionBelief assertions that cited it and re-run the originating
+// persona's LLM to produce revised beliefs.
+//
+// Trigger: revise operation on Observation in noaa-sst-daily or usgs-nwis.
+// Scope : chesapeake-attribution (home repo for beliefs).
 
 import type { Operation, ReviseOperation, FilterResult, ThingGet } from "@warmhub/sdk-ts";
 import { clientFromEnv, homeRepo, splitRepo, loadCredentialsFromPayload } from "./warmhub";
@@ -118,6 +120,8 @@ async function fetchAllBeliefs(client: ReturnType<typeof clientFromEnv>, org: st
   const all: any[] = [];
   let cursor: string | undefined;
   for (let i = 0; i < 20; i++) {
+    // kind: "assertion" is REQUIRED — client.thing.query filters to kind=thing
+    // by default when no kind is set, dropping all AttributionBelief assertions.
     const page: FilterResult = await client.thing.query(org, repo, {
       shape: "AttributionBelief",
       kind: "assertion",
@@ -243,79 +247,7 @@ async function main() {
     return;
   }
 
-  console.error(JSON.stringify({
-    diag_home_env_home_repo: process.env.WARMHUB_HOME_REPO ?? null,
-    diag_home_env_repo: process.env.WARMHUB_REPO ?? null,
-    diag_resolved_org: orgName,
-    diag_resolved_repo: repoName,
-    diag_api_url: process.env.WARMHUB_API_URL ?? null,
-    diag_wh_token_prefix: (process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "").slice(0, 12),
-  }));
-  // Probe: does thing.head work on a known wref? If yes, auth is fine and query has a filtering bug.
-  // If no, auth is broken despite the tokenScopes configuration.
-  try {
-    const head = await client.thing.head(
-      "fish-kill-attribution",
-      "chesapeake-attribution",
-      "FishKillEvent/severn-2025-11",
-    );
-    console.error(JSON.stringify({
-      diag_head_severn_name: (head as any)?.name ?? null,
-      diag_head_severn_version: (head as any)?.version ?? null,
-      diag_head_severn_shape: (head as any)?.shapeName ?? null,
-    }));
-  } catch (err) {
-    console.error(JSON.stringify({ diag_head_severn_error: (err as Error).message }));
-  }
-  // Probe: raw HTTP GET to see what the API responds with when we call directly.
-  try {
-    const apiUrl = process.env.WARMHUB_API_URL ?? "https://api.warmhub.ai";
-    const token = process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "";
-    const resp = await fetch(
-      `${apiUrl}/api/trpc/thing.query?input=${encodeURIComponent(JSON.stringify({
-        orgName: "fish-kill-attribution",
-        repoName: "chesapeake-attribution",
-        limit: 5,
-      }))}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    const body = await resp.text();
-    console.error(JSON.stringify({
-      diag_http_status: resp.status,
-      diag_http_body: body.slice(0, 500),
-    }));
-  } catch (err) {
-    console.error(JSON.stringify({ diag_http_error: (err as Error).message }));
-  }
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
-  const sample = allBeliefs[0] ?? {};
-  console.error(JSON.stringify({
-    diag_total: allBeliefs.length,
-    diag_keys: Object.keys(sample),
-    diag_data_keys: sample?.data ? Object.keys(sample.data) : null,
-    diag_head_keys: sample?.head ? Object.keys(sample.head) : null,
-    diag_head_data_keys: sample?.head?.data ? Object.keys(sample.head.data) : null,
-    diag_sample_evidence: sample?.data?.evidence_ids ?? sample?.head?.data?.evidence_ids ?? null,
-  }));
-  // ALSO try querying the known home repo explicitly to rule out env override.
-  const forcedBeliefs = await fetchAllBeliefs(client, "fish-kill-attribution", "chesapeake-attribution");
-  console.error(JSON.stringify({
-    diag_forced_total: forcedBeliefs.length,
-    diag_forced_first_name: forcedBeliefs[0]?.name ?? null,
-  }));
-  // DIAG: try to locate a belief whose evidence_ids contains the revisedWref, no matter where data lives.
-  const candidates = allBeliefs.filter((b) => {
-    const evA = b?.data?.evidence_ids;
-    const evB = b?.head?.data?.evidence_ids;
-    const ev = (Array.isArray(evA) ? evA : Array.isArray(evB) ? evB : []) as string[];
-    return ev.some((id) => id === revisedWref);
-  });
-  console.error(JSON.stringify({
-    diag_revisedWref: revisedWref,
-    diag_candidate_count: candidates.length,
-    diag_candidate_names: candidates.slice(0, 5).map((c) => c.name),
-  }));
-
   const affected = allBeliefs.filter((b) => {
     const ev = (b.data?.evidence_ids ?? b.head?.data?.evidence_ids ?? []) as string[];
     return Array.isArray(ev) && ev.some((id) => id === revisedWref || id.endsWith(revisedWref));
