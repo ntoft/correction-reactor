@@ -251,27 +251,41 @@ async function main() {
     diag_api_url: process.env.WARMHUB_API_URL ?? null,
     diag_wh_token_prefix: (process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "").slice(0, 12),
   }));
-  // Probe multiple query variants so we can tell where things break.
-  for (const variant of [
-    { label: "chesapeake no-filter",  org: "fish-kill-attribution", repo: "chesapeake-attribution", opts: { limit: 5 } },
-    { label: "chesapeake FishKillEvent",  org: "fish-kill-attribution", repo: "chesapeake-attribution", opts: { shape: "FishKillEvent", limit: 5 } },
-    { label: "chesapeake AttributionBelief kind=assertion",  org: "fish-kill-attribution", repo: "chesapeake-attribution", opts: { shape: "AttributionBelief", kind: "assertion", limit: 5 } },
-    { label: "noaa-sst-daily no-filter",  org: "fish-kill-attribution", repo: "noaa-sst-daily", opts: { limit: 5 } },
-    { label: "noaa-sst-daily Observation",  org: "fish-kill-attribution", repo: "noaa-sst-daily", opts: { shape: "Observation", limit: 5 } },
-  ] as any[]) {
-    try {
-      const r: FilterResult = await client.thing.query(variant.org, variant.repo, variant.opts);
-      console.error(JSON.stringify({
-        diag_variant: variant.label,
-        count: (r.items ?? []).length,
-        firstName: (r.items ?? [])[0]?.name ?? null,
-      }));
-    } catch (err) {
-      console.error(JSON.stringify({
-        diag_variant: variant.label,
-        error: (err as Error).message,
-      }));
-    }
+  // Probe: does thing.head work on a known wref? If yes, auth is fine and query has a filtering bug.
+  // If no, auth is broken despite the tokenScopes configuration.
+  try {
+    const head = await client.thing.head(
+      "fish-kill-attribution",
+      "chesapeake-attribution",
+      "FishKillEvent/severn-2025-11",
+    );
+    console.error(JSON.stringify({
+      diag_head_severn_name: (head as any)?.name ?? null,
+      diag_head_severn_version: (head as any)?.version ?? null,
+      diag_head_severn_shape: (head as any)?.shapeName ?? null,
+    }));
+  } catch (err) {
+    console.error(JSON.stringify({ diag_head_severn_error: (err as Error).message }));
+  }
+  // Probe: raw HTTP GET to see what the API responds with when we call directly.
+  try {
+    const apiUrl = process.env.WARMHUB_API_URL ?? "https://api.warmhub.ai";
+    const token = process.env.WH_TOKEN ?? process.env.WARMHUB_TOKEN ?? "";
+    const resp = await fetch(
+      `${apiUrl}/api/trpc/thing.query?input=${encodeURIComponent(JSON.stringify({
+        orgName: "fish-kill-attribution",
+        repoName: "chesapeake-attribution",
+        limit: 5,
+      }))}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = await resp.text();
+    console.error(JSON.stringify({
+      diag_http_status: resp.status,
+      diag_http_body: body.slice(0, 500),
+    }));
+  } catch (err) {
+    console.error(JSON.stringify({ diag_http_error: (err as Error).message }));
   }
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
   const sample = allBeliefs[0] ?? {};
