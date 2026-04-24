@@ -3786,11 +3786,12 @@ async function main() {
       const m = name.match(/-(agricultural|thermal|industrial|stormflow|biological|unknown)$/);
       const cause = m?.[1] ?? "unknown";
       const nb = byCause.get(cause);
+      const reviseName = name.startsWith("AttributionBelief/") ? name : `AttributionBelief/${name}`;
       if (!nb) {
         const revise2 = {
           operation: "revise",
           kind: "assertion",
-          name,
+          name: reviseName,
           data: {
             share: 0,
             sl_belief: 0,
@@ -3805,7 +3806,7 @@ async function main() {
       const revise = {
         operation: "revise",
         kind: "assertion",
-        name,
+        name: reviseName,
         data: {
           share: nb.share,
           sl_belief: nb.sl_belief,
