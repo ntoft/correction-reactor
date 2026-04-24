@@ -120,9 +120,10 @@ async function fetchAllBeliefs(client: ReturnType<typeof clientFromEnv>, org: st
   for (let i = 0; i < 20; i++) {
     const page: FilterResult = await client.thing.query(org, repo, {
       shape: "AttributionBelief",
+      kind: "assertion",
       limit: 500,
       cursor,
-    });
+    } as any);
     const items = (page.items ?? []) as any[];
     all.push(...items);
     cursor = (page as any).nextCursor ?? (page as any).cursor;

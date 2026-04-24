@@ -3629,6 +3629,7 @@ async function fetchAllBeliefs(client, org, repo) {
   for (let i = 0;i < 20; i++) {
     const page = await client.thing.query(org, repo, {
       shape: "AttributionBelief",
+      kind: "assertion",
       limit: 500,
       cursor
     });
