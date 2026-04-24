@@ -260,12 +260,15 @@ async function main() {
   const groups = new Map<string, { eventWref: string; persona: Persona; beliefNames: string[] }>();
   for (const b of affected) {
     const data = b.data ?? b.head?.data ?? {};
-    const about = (b.about ?? b.head?.about ?? "") as string;
+    // thing.query returns `aboutWref` (not `about`) on assertion items.
+    const about = (b.aboutWref ?? b.about ?? b.head?.aboutWref ?? b.head?.about ?? "") as string;
     const persona = (data.persona ?? "") as Persona;
     if (!about || !persona) continue;
-    const key = `${about}::${persona}`;
+    // Strip @v1/@v2 version suffix — client.thing.get rejects versioned wrefs.
+    const aboutBase = about.replace(/@v\d+$/, "");
+    const key = `${aboutBase}::${persona}`;
     let g = groups.get(key);
-    if (!g) { g = { eventWref: about, persona, beliefNames: [] }; groups.set(key, g); }
+    if (!g) { g = { eventWref: aboutBase, persona, beliefNames: [] }; groups.set(key, g); }
     g.beliefNames.push(b.name);
   }
 

@@ -3752,14 +3752,15 @@ async function main() {
   const groups = new Map;
   for (const b of affected) {
     const data = b.data ?? b.head?.data ?? {};
-    const about = b.about ?? b.head?.about ?? "";
+    const about = b.aboutWref ?? b.about ?? b.head?.aboutWref ?? b.head?.about ?? "";
     const persona = data.persona ?? "";
     if (!about || !persona)
       continue;
-    const key = `${about}::${persona}`;
+    const aboutBase = about.replace(/@v\d+$/, "");
+    const key = `${aboutBase}::${persona}`;
     let g = groups.get(key);
     if (!g) {
-      g = { eventWref: about, persona, beliefNames: [] };
+      g = { eventWref: aboutBase, persona, beliefNames: [] };
       groups.set(key, g);
     }
     g.beliefNames.push(b.name);
