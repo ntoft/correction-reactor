@@ -242,8 +242,13 @@ async function main() {
     return;
   }
 
+  console.error(JSON.stringify({
+    diag_home_env_home_repo: process.env.WARMHUB_HOME_REPO ?? null,
+    diag_home_env_repo: process.env.WARMHUB_REPO ?? null,
+    diag_resolved_org: orgName,
+    diag_resolved_repo: repoName,
+  }));
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
-  // DIAG: report shape + first-item keys so we know what `b.data.evidence_ids` actually resolves to.
   const sample = allBeliefs[0] ?? {};
   console.error(JSON.stringify({
     diag_total: allBeliefs.length,
@@ -252,6 +257,12 @@ async function main() {
     diag_head_keys: sample?.head ? Object.keys(sample.head) : null,
     diag_head_data_keys: sample?.head?.data ? Object.keys(sample.head.data) : null,
     diag_sample_evidence: sample?.data?.evidence_ids ?? sample?.head?.data?.evidence_ids ?? null,
+  }));
+  // ALSO try querying the known home repo explicitly to rule out env override.
+  const forcedBeliefs = await fetchAllBeliefs(client, "fish-kill-attribution", "chesapeake-attribution");
+  console.error(JSON.stringify({
+    diag_forced_total: forcedBeliefs.length,
+    diag_forced_first_name: forcedBeliefs[0]?.name ?? null,
   }));
   // DIAG: try to locate a belief whose evidence_ids contains the revisedWref, no matter where data lives.
   const candidates = allBeliefs.filter((b) => {
