@@ -91,9 +91,24 @@ function qualifyWref(repo: string, shape: string, name: string): string {
   return `wh:${repo}/${shape}/${name}`;
 }
 
+// Normalize sourceRepo — runtime may deliver it as a string "org/repo" or as
+// an object { org, repo } / { orgName, repoName }. Returns "org/repo" or "".
+function normalizeSourceRepo(raw: unknown): string {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    const org = (r.org ?? r.orgName ?? r.organization) as string | undefined;
+    const repo = (r.repo ?? r.repoName ?? r.repository) as string | undefined;
+    if (org && repo) return `${org}/${repo}`;
+  }
+  return "";
+}
+
 // Parse the payload to find the revised Observation wref, qualified.
 function revisedObservationWref(payload: SpritePayload): string | null {
-  const sourceRepo = payload.sourceRepo ?? "";
+  const sourceRepo =
+    normalizeSourceRepo((payload as any).sourceRepo) ||
+    "fish-kill-attribution/noaa-sst-daily"; // reactor is scoped to NOAA sub
   const ops = payload.matchedOperations ?? [];
   for (const rawOp of ops) {
     // Sprite runtime nests the commit op under .operation; support both shapes.
@@ -103,10 +118,9 @@ function revisedObservationWref(payload: SpritePayload): string | null {
     if (!name) continue;
     // If already qualified (wh:org/repo/Shape/name), use as-is.
     if (name.startsWith("wh:")) return name;
-    // Otherwise qualify with sourceRepo if available.
-    if (sourceRepo) return `wh:${sourceRepo}/${name}`;
-    // Fallback: name alone — can't qualify.
-    return name;
+    // Otherwise qualify with sourceRepo. name may be bare or shape-prefixed.
+    const qualified = name.includes("/") ? name : `Observation/${name}`;
+    return `wh:${sourceRepo}/${qualified}`;
   }
   return null;
 }

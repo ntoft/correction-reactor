@@ -3594,8 +3594,20 @@ function degDistance(a, b) {
 function qualifyWref(repo, shape, name) {
   return `wh:${repo}/${shape}/${name}`;
 }
+function normalizeSourceRepo(raw) {
+  if (typeof raw === "string")
+    return raw;
+  if (raw && typeof raw === "object") {
+    const r = raw;
+    const org = r.org ?? r.orgName ?? r.organization;
+    const repo = r.repo ?? r.repoName ?? r.repository;
+    if (org && repo)
+      return `${org}/${repo}`;
+  }
+  return "";
+}
 function revisedObservationWref(payload) {
-  const sourceRepo = payload.sourceRepo ?? "";
+  const sourceRepo = normalizeSourceRepo(payload.sourceRepo) || "fish-kill-attribution/noaa-sst-daily";
   const ops = payload.matchedOperations ?? [];
   for (const rawOp of ops) {
     const op = rawOp?.operation ?? rawOp;
@@ -3606,9 +3618,8 @@ function revisedObservationWref(payload) {
       continue;
     if (name.startsWith("wh:"))
       return name;
-    if (sourceRepo)
-      return `wh:${sourceRepo}/${name}`;
-    return name;
+    const qualified = name.includes("/") ? name : `Observation/${name}`;
+    return `wh:${sourceRepo}/${qualified}`;
   }
   return null;
 }
