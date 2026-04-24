@@ -1,15 +1,11 @@
-// correction-reactor — when an upstream Observation is revised, find all
-// AttributionBelief assertions that cited it and re-run the originating
-// persona's LLM to produce revised beliefs.
-//
-// Trigger: revise operation on Observation in noaa-sst-daily or usgs-nwis.
-// Scope : chesapeake-attribution (home repo for beliefs).
+// Patched correction-reactor — adds diagnostic logging to find why the
+// evidence_ids filter returns 0 matches despite beliefs that clearly cite the
+// revised observation. Logs item-shape samples, keys present, and raw filter
+// results. Remove the console.error blocks once the bug is fixed.
 
 import type { Operation, ReviseOperation, FilterResult, ThingGet } from "@warmhub/sdk-ts";
 import { clientFromEnv, homeRepo, splitRepo, loadCredentialsFromPayload } from "./warmhub";
 
-// MODEL + OPENROUTER_BASE resolved lazily — credentials arrive via
-// loadCredentialsFromPayload after this module loads.
 function resolveModel(): string {
   return process.env.PERSONA_MODEL ?? "anthropic/claude-3-haiku";
 }
@@ -86,13 +82,10 @@ function degDistance(a: { lat: number; lon: number }, b: { lat: number; lon: num
   return Math.sqrt((a.lat - b.lat) ** 2 + (a.lon - b.lon) ** 2);
 }
 
-// Build a full qualified wref for a thing in another repo.
 function qualifyWref(repo: string, shape: string, name: string): string {
   return `wh:${repo}/${shape}/${name}`;
 }
 
-// Normalize sourceRepo — runtime may deliver it as a string "org/repo" or as
-// an object { org, repo } / { orgName, repoName }. Returns "org/repo" or "".
 function normalizeSourceRepo(raw: unknown): string {
   if (typeof raw === "string") return raw;
   if (raw && typeof raw === "object") {
@@ -104,21 +97,17 @@ function normalizeSourceRepo(raw: unknown): string {
   return "";
 }
 
-// Parse the payload to find the revised Observation wref, qualified.
 function revisedObservationWref(payload: SpritePayload): string | null {
   const sourceRepo =
     normalizeSourceRepo((payload as any).sourceRepo) ||
-    "fish-kill-attribution/noaa-sst-daily"; // reactor is scoped to NOAA sub
+    "fish-kill-attribution/noaa-sst-daily";
   const ops = payload.matchedOperations ?? [];
   for (const rawOp of ops) {
-    // Sprite runtime nests the commit op under .operation; support both shapes.
     const op = ((rawOp as any)?.operation ?? rawOp) as any;
     if (op.operation !== "revise") continue;
     const name = op.name ?? op.wref ?? "";
     if (!name) continue;
-    // If already qualified (wh:org/repo/Shape/name), use as-is.
     if (name.startsWith("wh:")) return name;
-    // Otherwise qualify with sourceRepo. name may be bare or shape-prefixed.
     const qualified = name.includes("/") ? name : `Observation/${name}`;
     return `wh:${sourceRepo}/${qualified}`;
   }
@@ -241,12 +230,11 @@ async function askLlm(apiKey: string, persona: Persona, event: EventData, contex
 
 async function main() {
   const client = clientFromEnv();
-  const { orgName, repoName } = splitRepo(homeRepo()); // chesapeake-attribution
+  const { orgName, repoName } = splitRepo(homeRepo());
 
   const raw = await Bun.stdin.text();
   const rawPayload: any = raw ? JSON.parse(raw) : {};
   await loadCredentialsFromPayload(rawPayload);
-  // Sprite runtime wraps the commit payload under `.payload`; unwrap it.
   const payload: SpritePayload = rawPayload?.payload ?? rawPayload;
   const revisedWref = revisedObservationWref(payload);
   if (!revisedWref) {
@@ -254,8 +242,30 @@ async function main() {
     return;
   }
 
-  // Find affected beliefs: fetch all AttributionBelief HEADs, filter client-side by evidence_ids.
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
+  // DIAG: report shape + first-item keys so we know what `b.data.evidence_ids` actually resolves to.
+  const sample = allBeliefs[0] ?? {};
+  console.error(JSON.stringify({
+    diag_total: allBeliefs.length,
+    diag_keys: Object.keys(sample),
+    diag_data_keys: sample?.data ? Object.keys(sample.data) : null,
+    diag_head_keys: sample?.head ? Object.keys(sample.head) : null,
+    diag_head_data_keys: sample?.head?.data ? Object.keys(sample.head.data) : null,
+    diag_sample_evidence: sample?.data?.evidence_ids ?? sample?.head?.data?.evidence_ids ?? null,
+  }));
+  // DIAG: try to locate a belief whose evidence_ids contains the revisedWref, no matter where data lives.
+  const candidates = allBeliefs.filter((b) => {
+    const evA = b?.data?.evidence_ids;
+    const evB = b?.head?.data?.evidence_ids;
+    const ev = (Array.isArray(evA) ? evA : Array.isArray(evB) ? evB : []) as string[];
+    return ev.some((id) => id === revisedWref);
+  });
+  console.error(JSON.stringify({
+    diag_revisedWref: revisedWref,
+    diag_candidate_count: candidates.length,
+    diag_candidate_names: candidates.slice(0, 5).map((c) => c.name),
+  }));
+
   const affected = allBeliefs.filter((b) => {
     const ev = (b.data?.evidence_ids ?? b.head?.data?.evidence_ids ?? []) as string[];
     return Array.isArray(ev) && ev.some((id) => id === revisedWref || id.endsWith(revisedWref));
@@ -265,7 +275,6 @@ async function main() {
     return;
   }
 
-  // Group affected beliefs by (event, persona) so we re-run the LLM once per group.
   const groups = new Map<string, { eventWref: string; persona: Persona; beliefNames: string[] }>();
   for (const b of affected) {
     const data = b.data ?? b.head?.data ?? {};
@@ -295,15 +304,12 @@ async function main() {
     const byCause = new Map<Cause, LlmBelief>();
     for (const nb of newBeliefs) byCause.set(nb.cause, nb);
 
-    // Revise each affected belief with the new corresponding cause opinion.
-    // Belief names follow: AttributionBelief/<event-slug>-<persona>-<cause>
     const ops: Operation[] = [];
     for (const name of group.beliefNames) {
       const m = name.match(/-(agricultural|thermal|industrial|stormflow|biological|unknown)$/);
       const cause = (m?.[1] ?? "unknown") as Cause;
       const nb = byCause.get(cause);
       if (!nb) {
-        // LLM no longer believes in this cause — zero it out rather than retract.
         const revise: ReviseOperation = {
           operation: "revise",
           kind: "assertion",

@@ -3740,6 +3740,26 @@ async function main() {
     return;
   }
   const allBeliefs = await fetchAllBeliefs(client, orgName, repoName);
+  const sample = allBeliefs[0] ?? {};
+  console.error(JSON.stringify({
+    diag_total: allBeliefs.length,
+    diag_keys: Object.keys(sample),
+    diag_data_keys: sample?.data ? Object.keys(sample.data) : null,
+    diag_head_keys: sample?.head ? Object.keys(sample.head) : null,
+    diag_head_data_keys: sample?.head?.data ? Object.keys(sample.head.data) : null,
+    diag_sample_evidence: sample?.data?.evidence_ids ?? sample?.head?.data?.evidence_ids ?? null
+  }));
+  const candidates = allBeliefs.filter((b) => {
+    const evA = b?.data?.evidence_ids;
+    const evB = b?.head?.data?.evidence_ids;
+    const ev = Array.isArray(evA) ? evA : Array.isArray(evB) ? evB : [];
+    return ev.some((id) => id === revisedWref);
+  });
+  console.error(JSON.stringify({
+    diag_revisedWref: revisedWref,
+    diag_candidate_count: candidates.length,
+    diag_candidate_names: candidates.slice(0, 5).map((c) => c.name)
+  }));
   const affected = allBeliefs.filter((b) => {
     const ev = b.data?.evidence_ids ?? b.head?.data?.evidence_ids ?? [];
     return Array.isArray(ev) && ev.some((id) => id === revisedWref || id.endsWith(revisedWref));
