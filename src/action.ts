@@ -257,9 +257,10 @@ async function main() {
     return;
   }
 
-  const groups = new Map<string, { eventWref: string; persona: Persona; beliefNames: string[] }>();
+  type BeliefRef = { name: string; originalData: Record<string, any> };
+  const groups = new Map<string, { eventWref: string; persona: Persona; beliefs: BeliefRef[] }>();
   for (const b of affected) {
-    const data = b.data ?? b.head?.data ?? {};
+    const data = (b.data ?? b.head?.data ?? {}) as Record<string, any>;
     // thing.query returns `aboutWref` (not `about`) on assertion items.
     const about = (b.aboutWref ?? b.about ?? b.head?.aboutWref ?? b.head?.about ?? "") as string;
     const persona = (data.persona ?? "") as Persona;
@@ -268,8 +269,8 @@ async function main() {
     const aboutBase = about.replace(/@v\d+$/, "");
     const key = `${aboutBase}::${persona}`;
     let g = groups.get(key);
-    if (!g) { g = { eventWref: aboutBase, persona, beliefNames: [] }; groups.set(key, g); }
-    g.beliefNames.push(b.name);
+    if (!g) { g = { eventWref: aboutBase, persona, beliefs: [] }; groups.set(key, g); }
+    g.beliefs.push({ name: b.name, originalData: data });
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -290,23 +291,33 @@ async function main() {
     for (const nb of newBeliefs) byCause.set(nb.cause, nb);
 
     const ops: Operation[] = [];
-    for (const name of group.beliefNames) {
+    for (const { name, originalData } of group.beliefs) {
       const m = name.match(/-(agricultural|thermal|industrial|stormflow|biological|unknown)$/);
-      const cause = (m?.[1] ?? "unknown") as Cause;
+      const cause = (m?.[1] ?? originalData.cause ?? "unknown") as Cause;
       const nb = byCause.get(cause);
       // Revise ops expect `Shape/local-name` — thing.query returns bare local names.
       const reviseName = name.startsWith("AttributionBelief/") ? name : `AttributionBelief/${name}`;
+      // Required shape fields — revise op must carry ALL required fields, even unchanged ones.
+      const identity = {
+        cause,
+        persona: group.persona,
+        prompt_version: (originalData.prompt_version as string) ?? "reactor-v1",
+      };
       if (!nb) {
         const revise: ReviseOperation = {
           operation: "revise",
           kind: "assertion",
           name: reviseName,
           data: {
+            ...identity,
             share: 0,
             sl_belief: 0,
             sl_disbelief: 1,
             sl_uncertainty: 0,
+            sl_base_rate: (originalData.sl_base_rate as number) ?? 0.5,
             rationale: "Revised: upstream evidence changed; this cause no longer supported by persona.",
+            evidence_ids: (originalData.evidence_ids as string[]) ?? [],
+            model: (originalData.model as string) ?? resolveModel(),
           },
         };
         ops.push(revise);
@@ -317,6 +328,7 @@ async function main() {
         kind: "assertion",
         name: reviseName,
         data: {
+          ...identity,
           share: nb.share,
           sl_belief: nb.sl_belief,
           sl_disbelief: nb.sl_disbelief,

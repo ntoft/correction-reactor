@@ -3760,10 +3760,10 @@ async function main() {
     const key = `${aboutBase}::${persona}`;
     let g = groups.get(key);
     if (!g) {
-      g = { eventWref: aboutBase, persona, beliefNames: [] };
+      g = { eventWref: aboutBase, persona, beliefs: [] };
       groups.set(key, g);
     }
-    g.beliefNames.push(b.name);
+    g.beliefs.push({ name: b.name, originalData: data });
   }
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey)
@@ -3782,22 +3782,31 @@ async function main() {
     for (const nb of newBeliefs)
       byCause.set(nb.cause, nb);
     const ops = [];
-    for (const name of group.beliefNames) {
+    for (const { name, originalData } of group.beliefs) {
       const m = name.match(/-(agricultural|thermal|industrial|stormflow|biological|unknown)$/);
-      const cause = m?.[1] ?? "unknown";
+      const cause = m?.[1] ?? originalData.cause ?? "unknown";
       const nb = byCause.get(cause);
       const reviseName = name.startsWith("AttributionBelief/") ? name : `AttributionBelief/${name}`;
+      const identity2 = {
+        cause,
+        persona: group.persona,
+        prompt_version: originalData.prompt_version ?? "reactor-v1"
+      };
       if (!nb) {
         const revise2 = {
           operation: "revise",
           kind: "assertion",
           name: reviseName,
           data: {
+            ...identity2,
             share: 0,
             sl_belief: 0,
             sl_disbelief: 1,
             sl_uncertainty: 0,
-            rationale: "Revised: upstream evidence changed; this cause no longer supported by persona."
+            sl_base_rate: originalData.sl_base_rate ?? 0.5,
+            rationale: "Revised: upstream evidence changed; this cause no longer supported by persona.",
+            evidence_ids: originalData.evidence_ids ?? [],
+            model: originalData.model ?? resolveModel()
           }
         };
         ops.push(revise2);
@@ -3808,6 +3817,7 @@ async function main() {
         kind: "assertion",
         name: reviseName,
         data: {
+          ...identity2,
           share: nb.share,
           sl_belief: nb.sl_belief,
           sl_disbelief: nb.sl_disbelief,
